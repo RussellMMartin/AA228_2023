@@ -14,15 +14,15 @@ def sarsalambda(D, discount,maxRuntime_mins=10):
     # (1) initialize Q(s,a) and N(s,a)
     Q = np.zeros((nStates, nActions))
     Q_prev = np.zeros((nStates, nActions))
-    N = np.zeros((nStates, nActions), dtype=np.uint64)
+    N = np.zeros((nStates, nActions))
 
     counter = 0
     startt = datetime.now()
-    checkInterval = 5
+    checkInterval = 10
     convergence = {'t':[], 'change':[]}
 
     while True:
-        i = np.mod(counter, nExs)
+        i = np.random.randint(0, nExs+1) # pick example to test from
 
         # (2) get s, a, r, s'
         s, a, r, sp = D.s[i], D.a[i], D.r[i], D.sp[i]
@@ -36,7 +36,7 @@ def sarsalambda(D, discount,maxRuntime_mins=10):
         # (5) state-action count update: N(s,a) <- N(s,a) + 1
         N[s,a] += 1
 
-        for s in range (nStates):
+        for s in range(nStates):
             for a in range(nActions):
                 # (6) Update Q: Q(s,a) <- Q(s,a) + alpha * delta * N(s,a)
                 Q[s,a] = Q[s,a] + alpha * delta * N[s,a]
@@ -46,12 +46,14 @@ def sarsalambda(D, discount,maxRuntime_mins=10):
         # (8) Stop if Q change is slow or max time elapsed
         if np.mod(counter, checkInterval) == 0 and counter > checkInterval:
             runTime_mins = np.round((datetime.now() - startt).total_seconds()/60, 2)
-            pctChange = 100*(np.mean(np.abs((Q-Q_prev) / Q_prev)))
+            Q_f, Q_prev_f = Q.flatten(), Q_prev.flatten()
+            m = Q_prev_f != 0
+            pctChange = 100*(np.mean(np.abs((Q_f[m] - Q_prev_f[m])/Q_prev_f[m])))
             convergence['t'].append(runTime_mins)
             convergence['change'].append(pctChange)
-            print(f'runtime {runTime_mins} mins: Q at count {counter} is {pctChange.round(1)} % different than Q at count {counter-checkInterval}')
+            print(f'runtime {runTime_mins} mins: Q at ex {counter}/{nExs} is {pctChange.round(1)} % different than Q at ex {counter-checkInterval}')
 
-            if pctChange < 0.1 or runTime_mins > maxRuntime_mins:
+            if pctChange < 0 or runTime_mins > maxRuntime_mins:
                 break
             else:
                 Q_prev = copy.deepcopy(Q)
@@ -61,6 +63,8 @@ def sarsalambda(D, discount,maxRuntime_mins=10):
     pi = np.zeros(nStates)
     for s in range(nStates):
         pi[s] = np.argmax(Q[s,:])
+        if np.sum(Q[s,:]) != 0:
+            print(f'{s}, {Q[s,:]}, {pi[s]} \n')
 
     return pi+1, convergence
 # lookahead is R(s,a) + lambda * sum_{s'}[T(s'|s,a) * U_{k}(s')
@@ -84,7 +88,7 @@ def valueIter(R, T, discount, maxRuntime_mins=10):
     for b in range(int(1E6)):
         for s in range(nStates):
             U[s] = max([lookahead(R, T, U, discount, s, a) for a in actionSet])
-
+            
         if np.mod(b, checkInterval) == 0 and b > checkInterval:
             runTime_mins = np.round((datetime.now() - startt).total_seconds()/60, 2)
 
@@ -131,8 +135,8 @@ def maxLikelihoodModel(D, discount, maxRuntime_mins):
 
 def main():
     # settings
-    name = 'medium'
-    maxRuntime_mins = 10
+    name = 'large'
+    maxRuntime_mins = 12*60
 
     startt = datetime.now()
 
@@ -154,8 +158,12 @@ def main():
     print(f'saved policy to: \"{outfile}\", runtime {runTime_mins}')
 
     if 1:
-        plt.plot(convergence['t'], convergence['change'])
+        plt.scatter(convergence['t'], convergence['change'])
+        plt.ylim((0,250))
+        plt.xlabel('time (min)')
+        plt.ylabel('% change in Q (versus 10 examples prior)')
         plt.show()
+        np.savetxt('med_plot.csv', convergence, fmt='%i', delimiter=',')
 
 if __name__ == '__main__':
     main()
