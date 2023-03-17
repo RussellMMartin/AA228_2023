@@ -3,8 +3,18 @@ import copy
 
 def startGame(gridSize, nPlayers):
     S = np.zeros((gridSize, gridSize, 2), dtype=int)
-    S[:,:,0] = np.random.randint(nPlayers, size=(gridSize, gridSize))     # territory ownership
-    S[:,:,1] += 3                                                             # troops per territory
+
+    # order of territories to be distributed
+    order = np.arange(gridSize**2)
+    np.random.shuffle(order)
+    for i in range(gridSize**2):
+        x = int(np.floor(order[i]/gridSize))
+        y = np.mod(order[i], gridSize)
+        S[x,y,0] = np.mod(i, nPlayers)
+
+    S[:,:,1] += 3                                                         # troops per territory
+
+
     return S
 
 def get1DState(S):
@@ -62,12 +72,16 @@ def checkValidAction(S, a, p):
     elif a[2] == 'w':
         dest_y = orig_y
         dest_x = orig_x - 1
+    elif a[2] == 'p':
+        return True
 
     doesPlayerOwnOrigin = (S[orig_x, orig_y, 0] == p)
     doesOpponentOwnDestination = (S[dest_x, dest_y, 0] != p)
     doesPlayerHaveEnoughTroops = (S[orig_x, orig_y, 1] > 1)
 
-    if doesPlayerOwnOrigin and doesOpponentOwnDestination:
+    if doesPlayerOwnOrigin and doesOpponentOwnDestination and doesPlayerHaveEnoughTroops:
+        # print(f'DEBUG checkAction player {p} action{a} origin player {S[orig_x, orig_y, 0]} at {orig_x, orig_y}, '+
+        #       f'destination player {S[dest_x, dest_y, 0]} at {dest_x, dest_y} with {S[dest_x, dest_y, 1]} troops')
         return True
     else:
         return False
@@ -89,17 +103,21 @@ def doAction(S, attackingPlayer, a):
         def_y = a[1]
         def_x = a[0] - 1
 
+    # print(f'DEBUG doAction orig player {S[a[0], a[1], 0]} def player {S[def_x, def_y, 0]}' + 
+    #       f'S = \n{S[:,:,0]}')
+
     # attacker can attack with 3 troops at most, defender can defend with 2 troops
-    nAttackingTroops = np.minimum(S[a[0], a[1], 1], 3)
+    nAttackingTroops = np.minimum(S[a[0], a[1], 1], 4) - 1
     nDefendingTroops = np.minimum(S[def_x, def_y, 1], 2)
     nBattles = np.min((nAttackingTroops, nDefendingTroops))
 
     # roll a 6-sided die, sort in descending order
     attackRolls = np.sort(np.random.randint(1,7, size=nAttackingTroops))[::-1]
     defendRolls = np.sort(np.random.randint(1,7, size=nDefendingTroops))[::-1]
+    rolls = [attackRolls, defendRolls]
 
     # do the battle
-    survivingAttackers = attackRolls
+    survivingAttackers = np.size(attackRolls)
     for i in range(nBattles):
         # attacker wins
         if attackRolls[i] > defendRolls[i]: 
@@ -126,15 +144,19 @@ def doAction(S, attackingPlayer, a):
         S[a[0], a[1], 1] -= troopsToMove
         S[def_x, def_y, 1] += troopsToMove
 
-    if 1:
-        print(f'player {attackingPlayer} attacks from {a[0], a[1]} ({S_orig[a[0], a[1], 1]} troops) into {def_x, def_y} ({S_orig[def_x, def_x, 1]} troops).' + 
+    if 0:
+        print(f'player {attackingPlayer} attacks from {a[0], a[1]} ({S_orig[a[0], a[1], 1]} troops) into {def_x, def_y} ({S_orig[def_x, def_x, 1]} troops) defended by player {S_orig[def_x, def_y, 0]}.' + 
               f'\nAttacker rolls {attackRolls}, defender rolls {defendRolls}.' + 
               f'\nAfter attack, origin cell has {S[a[0], a[1], 1]} troops, defending cell has {S[def_x, def_y, 1]} troops,'+
               f'and defending cell is owned by player {S[def_x, def_y, 0]}.')
 
-    return S
+    return S, rolls
 
-
+# resupply player p with t troops based on max(floor(nCells/3), 2)
+def getResupplyCount(S, p):
+    nCells = np.sum(S[:,:,0] == p)
+    nTroops = int(np.max((np.floor(nCells / 3), 2)))
+    return int(nTroops)
 
 
 
