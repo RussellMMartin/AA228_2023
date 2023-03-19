@@ -4,75 +4,150 @@ from vis import *
 from game_mgmt import *
 from agent import *
 import timeit
+import pickle
 
 
 
 
-def main():
-    ######################
-    ###### settings ######
-    ######################
-    visType = 'end' # 'end', 'each', or 'none'
-    gridSize = 4
-    nPlayers = 2
-    ######################
-    
+def playGame(agents, gridSize=4, visType='end', maxTurns = 250, seed=None, batch_size=8, fileNamePrefix=""):
+   
     # game setup
-    np.random.seed(1)
-    maxTurns = 250
-    maxAttacksPerTurn = 5
+    if seed != None:
+        np.random.seed(seed)
+    nPlayers = len(agents)
+    maxAttacksPerTurn = 10
     S = startGame(gridSize, nPlayers) # state of board is shape(size, size, 2). [x,y,0] is player owner, [x,y,1] is nTroops of cell (x,y)
     A = generateActionSet(gridSize)
 
     # housekeeping
     if visType == 'end':
-            clearAllPlots()
+        clearAllPlots()
     turnCount = 0
     S_history = []
+    r_history = np.zeros((1, nPlayers))
     figs = []
     startt = timeit.default_timer()
+    winner = None
     
     for turnCount in range(maxTurns):
         runTime = (timeit.default_timer() - startt) / 60
         print(f'turn {turnCount} ({round((turnCount/runTime),2)} turns/min)', end="\r")
         player = np.mod(turnCount, nPlayers)
-        
+                
         figs = visState(S, nPlayers, visType, figs, title=f'Turn {turnCount}: Start of player {player}\'s turn')
         
         nTroopsToPlace = getResupplyCount(S, player)
         for t in range(nTroopsToPlace):
-            S = chooseTroopPlacement(S, player)
+            S = chooseTroopPlacement(S, player, agents[player]['place'])
         figs = visState(S, nPlayers, visType, figs, title=f'Turn {turnCount}: Player {player} troops placed')
 
-        for _ in range(maxAttacksPerTurn): # players get a max of gridSize attacks per turn
+        for _ in range(maxAttacksPerTurn): 
             S_history.append(copy.deepcopy(S))
             S_orig = copy.deepcopy(S)
-            a = chooseAction(S, player, A)
+            a, a_idx = chooseAction(S, player, A, agents[player]['attack'])
             # if player hasn't passed their turn
             if a[0] != -1:
                 S, rolls = doAction(S, player, a)
+                r = getReward(S_orig, S, player)
+
+                # visualize action and outcome
+                title = f'Turn {turnCount}: Player {player} attacks {a[2]} from {a[0], a[1]} \n Attacker rolls {rolls[0]}, Defender rolls {rolls[1]}'
+                figs = visState(S_orig, nPlayers, visType, figs, title=title, action=a)
+                figs = visState(S, nPlayers, visType, figs, title=f'Turn {turnCount}: Player {player}\'s attack outcome (reward = {r})')
+
             # if player has passed their turn
             else: 
+                r = -.05
                 figs = visState(S_orig, nPlayers, visType, figs,title=f'Turn {turnCount}: Player {player} ends their turn')
+
+            # store experience in memory
+            r_history = trackRewards(r, player, r_history)
+            terminated = True if np.all(S[:,:,0] == S[0,0,0]) else False
+            if agents[player]['attack'] != None:
+                agents[player]['attack'].store(get1DState(S_orig), a_idx, r, get1DState(S), terminated)
+            
+            if terminated or a[0] != -1:
                 break
-            title = f'Turn {turnCount}: Player {player} attacks {a[2]} from {a[0], a[1]} \n Attacker rolls {rolls[0]}, Defender rolls {rolls[1]}'
-            figs = visState(S_orig, nPlayers, visType, figs, title=title, action=a)
-            plt.close()
-            figs = visState(S, nPlayers, visType, figs, title=f'Turn {turnCount}: Player {player}\'s attack outcome')
-            plt.close()
+
+        # 25% of the time, retrain the model using random memories
+        doRetrain = True if np.random.randint(0,100) < 25 else False
+        if agents[player]['attack'] != None and len(agents[player]['attack'].expirience_replay) > batch_size and doRetrain:
+            # print('\n retrain')
+            agents[player]['attack'].retrain(batch_size)
         
         # Check if game is complete
         if np.all(S[:,:,0] == S[0,0,0]):
-            title=f'Turn {turnCount}: End of game! Player {S[0,0,0]} wins!'
+            winner = S[0,0,0]
+            title=f'Turn {turnCount}: End of game! Player {winner} wins!'
             figs = visState(S, nPlayers, visType, figs, title=title)
             break
 
     if visType == 'end':
-        visGameFlow(figs)
-    plotGameProgress(S_history, nPlayers)
-    print('\n Game complete!')
-    return
+        visGameFlow(figs, fileNamePrefix)
+    plotGameProgress(S_history, r_history, nPlayers, fileNamePrefix)
+    hist = [S_history, r_history]
+    return [agents, winner, hist]
+
     
+def main():
+    maxTime_mins = 60*12
+    visType = 'none' # 'end', 'each', or 'none'
+    gridSize = 3
+    seed = 1
+    maxTurns = 500
+
+    agents = {
+        0: {
+            'place': None,
+            'attack': None
+        },
+        1: {
+            'place': None,
+            'attack': None
+        }
+    }
+
+    nPlayers = len(agents)
+    optimizer = Adam(learning_rate=0.1)
+    # agents[1]['place'] = Agent(gridSize, nPlayers, optimizer, 'place')
+    agents[0]['attack'] = Agent(gridSize, nPlayers, optimizer, 'attack')
+    agents[0]['attack'].q_network.summary()
+
+    startt = timeit.default_timer()
+    count = 0
+    history_all = []
+    r_all = {'random':[], 'agent':[]}
+    while (timeit.default_timer() - startt) / 60 < maxTime_mins:
+        agents, winner, hist = playGame(agents, gridSize, visType, maxTurns, seed=count, fileNamePrefix=str(count))
+
+        history_all.append(hist)
+        print(f'\n\n*****\n END OF RUN {count}. Winner was player {winner}. Runtime {(timeit.default_timer() - startt) / 60}' + 
+              f' of {maxTime_mins} mins. Agent reward was {round(history_all[-1][1][-1,1],2)}, random was {round(history_all[-1][1][-1,0],2)} \n******\n\n')
+        r_all['agent'].append(history_all[-1][1][-1,1])
+        r_all['random'].append(history_all[-1][1][-1,0])
+        count += 1
+    
+    agents, winner, history_all = playGame(agents, gridSize, 'end', maxTurns, seed=count, fileNamePrefix=str(count))
+
+    # plot total reward vs run
+    x = range(len(r_all['agent']))
+    plt.figure()
+    plt.plot(x, r_all['agent'], color='b', label='agent')
+    plt.plot(x, r_all['random'], color='r', label='random')
+    plt.legend()
+    plt.xlabel('run #'); plt.ylabel('total reward')
+    plt.savefig('./gameGraphs/learning.png')
+
+    # save model and training history
+    agents[0]['attack'].q_network.save('attackModel_3x3_5mins.h5')
+    fileObj = open('train_history.pkl', 'wb')
+    pickle.dump(history_all,fileObj)
+    return
 
 if __name__ == '__main__':
     main()
+
+# todo
+#X1. figure out verbose
+#X2. add accumulated reward
+# 3. plot reward vs. run

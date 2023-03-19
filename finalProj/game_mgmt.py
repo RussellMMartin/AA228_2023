@@ -27,7 +27,7 @@ def get1DState(S):
             nTroopsBinned = binNTroops(S[x,y,1])
             player = S[x,y,0] + 1
             S_flat[i] = nTroopsBinned * player
-    return S_flat
+    return S_flat.reshape(1,-1)
 
 def binNTroops(nTroops):
     maxVal = 6

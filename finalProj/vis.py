@@ -70,8 +70,8 @@ def visState(S, nPlayers, visualize, figs, title=None, action=None):
     else:
         return
     
-def visGameFlow(figs):
-    path = 'test.gif'
+def visGameFlow(figs, fileNamePrefix=""):
+    path = 'gameFlow.gif'
     nFrames = len(figs)
     imgs = np.zeros(nFrames).tolist()
     for i in range(nFrames):
@@ -80,9 +80,9 @@ def visGameFlow(figs):
 
     frames = np.stack([iio.imread(f'./plots/{i:05d}.png') for i in range(nFrames)], axis=0)
 
-    iio.imwrite(path, frames)
+    iio.imwrite(fileNamePrefix+'_'+path, frames)
     # optimize(path)
-    print('\n Game flow saved to ', path)
+    print('\n Game flow saved to ', fileNamePrefix+'_'+path)
     return
 
 def clearAllPlots():
@@ -91,12 +91,13 @@ def clearAllPlots():
     for f in files:
         os.remove(f)
 
-def plotGameProgress(S_hist, nPlayers):
+def plotGameProgress(S_hist, r_hist, nPlayers, fileNamePrefix=''):
     nTurns = len(S_hist)
 
     nCells = np.zeros((nTurns, nPlayers))
     nTroops = np.zeros((nTurns, nPlayers))
 
+    # get troops and cells vs action number
     for t in range(nTurns):
         S = S_hist[t]
         for p in range(nPlayers):
@@ -107,26 +108,31 @@ def plotGameProgress(S_hist, nPlayers):
     # plot
     alpha = 1
     cmap = {0:[0.1,0.1,1.0,alpha],1:[1.0,0.1,0.1,alpha],2:[1.0,0.5,0.1,alpha], 3:[0.5,0.5,0.1,alpha]}
-    plt.figure(dpi=300)
-    plt.subplot(2,1,1)
+    plt.figure(dpi=300, figsize=(10,8))
+
+    plt.subplot(3,1,1)
     plt.title('Number of territories owned per player after every action')
     plt.xlabel('Action number'); plt.ylabel('Number of territories owned'); #plt.ylim(bottom=0)
-    plt.subplot(2,1,2)
+    plt.stackplot(range(nTurns), nCells.T, colors=np.array(list(cmap.values())))
+
+    plt.subplot(3,1,2)
     plt.title('Number of troops per player after every action')
     plt.xlabel('Action number'); plt.ylabel('Number of troops'); 
-
-    plt.subplot(2,1,2)
     for p in range(nPlayers):
         plt.plot(range(nTurns), nTroops[:, p], c=cmap[p], label=str(p))
-    plt.ylim(bottom=0)
-    plt.legend(title='Player #:')
+    plt.legend(title='Player #:');plt.ylim(bottom=0)
+    
+    plt.subplot(3,1,3)
+    plt.title('Accumulated reward')
+    plt.ylabel('Cumulative reward'); plt.xlabel('Action number')
+    for p in range(nPlayers):
+        x = range(0, np.shape(r_hist)[0])
+        plt.plot(x, r_hist[:,p], c=cmap[p])
 
-    plt.subplot(2,1,1);     
-    plt.stackplot(range(nTurns), nCells.T, colors=np.array(list(cmap.values())))
     
     plt.tight_layout()
-    plt.savefig('gameGraphs.png')
-    print('gameGraphs.png saved')
+    plt.savefig('./gameGraphs/'+fileNamePrefix+'_'+'gameGraphs.png')
+    print(fileNamePrefix+'_'+'gameGraphs.png saved')
     return
     
 
