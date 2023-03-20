@@ -9,7 +9,7 @@ import pickle
 
 
 
-def playGame(agents, gridSize=4, visType='end', maxTurns = 250, seed=None, batch_size=8, fileNamePrefix=""):
+def playGame(agents, gridSize=4, visType='end', maxTurns = 250, seed=None, batch_size=8, fileNamePrefix="", noLearning=False):
    
     # game setup
     if seed != None:
@@ -63,7 +63,7 @@ def playGame(agents, gridSize=4, visType='end', maxTurns = 250, seed=None, batch
             # store experience in memory
             r_history = trackRewards(r, player, r_history)
             terminated = True if np.all(S[:,:,0] == S[0,0,0]) else False
-            if agents[player]['attack'] != None:
+            if agents[player]['attack'] != None and not noLearning:
                 agents[player]['attack'].store(get1DState(S_orig), a_idx, r, get1DState(S), terminated)
             
             if terminated or a[0] != -1:
@@ -71,7 +71,7 @@ def playGame(agents, gridSize=4, visType='end', maxTurns = 250, seed=None, batch
 
         # 25% of the time, retrain the model using random memories
         doRetrain = True if np.random.randint(0,100) < 25 else False
-        if agents[player]['attack'] != None and len(agents[player]['attack'].expirience_replay) > batch_size and doRetrain:
+        if agents[player]['attack'] != None and len(agents[player]['attack'].expirience_replay) > batch_size and doRetrain and not noLearning:
             # print('\n retrain')
             agents[player]['attack'].retrain(batch_size)
         
@@ -90,11 +90,12 @@ def playGame(agents, gridSize=4, visType='end', maxTurns = 250, seed=None, batch
 
     
 def main():
-    maxTime_mins = 60*12
+    maxTime_mins = 60*1
     visType = 'none' # 'end', 'each', or 'none'
     gridSize = 3
     seed = 1
-    maxTurns = 500
+    maxTurns = 250
+    retraining = False
 
     agents = {
         0: {
@@ -110,24 +111,37 @@ def main():
     nPlayers = len(agents)
     optimizer = Adam(learning_rate=0.1)
     # agents[1]['place'] = Agent(gridSize, nPlayers, optimizer, 'place')
-    agents[0]['attack'] = Agent(gridSize, nPlayers, optimizer, 'attack')
+    if retraining:
+        agents[0]['attack'] = Agent(gridSize, nPlayers, optimizer, 'attack')
+    else:
+        agents[0]['attack'] = Agent(gridSize, nPlayers, optimizer, 'attack', './attackModel_3x3_5mins.h5')
     agents[0]['attack'].q_network.summary()
 
     startt = timeit.default_timer()
     count = 0
     history_all = []
+    winners = []
     r_all = {'random':[], 'agent':[]}
     while (timeit.default_timer() - startt) / 60 < maxTime_mins:
-        agents, winner, hist = playGame(agents, gridSize, visType, maxTurns, seed=count, fileNamePrefix=str(count))
+        if retraining:
+            agents, winner, hist = playGame(agents, gridSize, visType, maxTurns, seed=count, fileNamePrefix=str(count))
+            agents[0]['attack'].q_network.save('attackModel_3x3_5mins.h5')
+        else:
+            _, winner, hist = playGame(agents, gridSize, visType, maxTurns, seed=count, fileNamePrefix=str(count), noLearning=True)
 
         history_all.append(hist)
+        winners.append(winner)
+        winRate = np.round(1-(sum(winners)/len(winners)), 2)
         print(f'\n\n*****\n END OF RUN {count}. Winner was player {winner}. Runtime {(timeit.default_timer() - startt) / 60}' + 
-              f' of {maxTime_mins} mins. Agent reward was {round(history_all[-1][1][-1,1],2)}, random was {round(history_all[-1][1][-1,0],2)} \n******\n\n')
-        r_all['agent'].append(history_all[-1][1][-1,1])
-        r_all['random'].append(history_all[-1][1][-1,0])
+              f' of {maxTime_mins} mins. Agent reward was {round(history_all[-1][1][-1,0],2)}, random was {round(history_all[-1][1][-1,1],2)}. Agent winrate {winRate} \n******\n\n')
+        r_all['agent'].append(history_all[-1][1][-1,0])
+        r_all['random'].append(history_all[-1][1][-1,1])
         count += 1
+
+        if len(winners) > 99:
+            break
     
-    agents, winner, history_all = playGame(agents, gridSize, 'end', maxTurns, seed=count, fileNamePrefix=str(count))
+    _, winner, history_all = playGame(agents, gridSize, 'end', maxTurns, seed=count, fileNamePrefix=str(count))
 
     # plot total reward vs run
     x = range(len(r_all['agent']))
@@ -142,6 +156,16 @@ def main():
     agents[0]['attack'].q_network.save('attackModel_3x3_5mins.h5')
     fileObj = open('train_history.pkl', 'wb')
     pickle.dump(history_all,fileObj)
+
+    plt.figure()
+    plt.title('Total accumulated reward over 100 games')
+    plt.plot(range(len(r_all['agent'])), np.cumsum(r_all['agent']), color='blue', label='agent')
+    plt.plot(range(len(r_all['random'])), np.cumsum(r_all['random']), color='red', label='random')
+    plt.xlabel('games played'); plt.ylabel('total reward')
+    plt.legend()
+    plt.savefig('total reward, all games.png')
+    
+    a = 1+1
     return
 
 if __name__ == '__main__':

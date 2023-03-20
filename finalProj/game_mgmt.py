@@ -152,10 +152,10 @@ def doAction(S, attackingPlayer, a):
 
     return S, rolls
 
-# resupply player p with t troops based on max(floor(nCells/3), 2)
+# resupply player p with t troops based on max(floor(nCells/3), 0)
 def getResupplyCount(S, p):
     nCells = np.sum(S[:,:,0] == p)
-    nTroops = int(np.max((np.floor(nCells / 3), 2)))
+    nTroops = int(np.max((np.floor(nCells / 3), 0)))
     return int(nTroops)
 
 

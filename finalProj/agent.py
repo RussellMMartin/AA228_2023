@@ -61,6 +61,7 @@ def getReward(S_orig, S, p):
 
     r_defeatEnemies = 1
     r_loseFriendlies = -1.1
+    r_nCells = 20
     r_takeCell = 100
     r_winGame = 10000
 
@@ -81,6 +82,10 @@ def getReward(S_orig, S, p):
                 else:
                     r += (S_orig[x,y,1] - S[x,y,1]) * r_defeatEnemies
 
+    # number of cells owned
+    # r += r_nCells * np.sum(S[:,:,0] == p)
+
+    # check if game was won
     if np.all(S[:,:,0] == S[0,0,0]) and S[0,0,0] == p:
         r += r_winGame
 
@@ -99,7 +104,7 @@ def trackRewards(r, player, r_history):
 #################################################################################################################################
  
 class Agent:
-    def __init__(self, gridSize, nPlayers, optimizer, agentType):
+    def __init__(self, gridSize, nPlayers, optimizer, agentType, loadPath=None):
         
         # Initialize atributes
         nTroopBins = 6
@@ -117,9 +122,13 @@ class Agent:
         self.gamma = 0.6
         self.epsilon = 0.1
         
-        # Build networks
-        self.q_network = self._build_compile_model()
-        self.target_network = self._build_compile_model()
+        # Build or load networks
+        if loadPath == None:
+            self.q_network = self._build_compile_model()
+            self.target_network = self._build_compile_model()
+        else:
+            self.q_network = keras.models.load_model(loadPath)
+            self.target_network = keras.models.load_model(loadPath)
         self.alighn_target_model()
 
     def store(self, state, action, reward, next_state, terminated):
